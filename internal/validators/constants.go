@@ -25,6 +25,10 @@ var (
 	ErrInvalidNamedArgumentName      = errors.New("invalid named argument name format")
 	ErrArgumentValueStartsWithName   = errors.New("argument value cannot start with the argument name")
 	ErrArgumentDefaultStartsWithName = errors.New("argument default cannot start with the argument name")
+
+	// Server name validation errors
+	ErrInvalidServerNameFormat     = errors.New("server name format is invalid: must contain exactly one slash")
+	ErrMultipleSlashesInServerName = errors.New("server name cannot contain multiple slashes")
 )
 
 // RepositorySource represents valid repository sources
