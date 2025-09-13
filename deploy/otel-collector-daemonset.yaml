@@ -1,0 +1,438 @@
+---
+# Namespace for OpenTelemetry Collector
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: otel-system
+  labels:
+    environment: production
+
+---
+# ServiceAccount for OTel Collector
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: otel-system
+  labels:
+    app: otel-collector
+
+---
+# ClusterRole for OTel Collector
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector
+  labels:
+    app: otel-collector
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - namespaces
+      - nodes
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - daemonsets
+      - statefulsets
+      - replicasets
+    verbs:
+      - get
+      - watch
+      - list
+
+---
+# ClusterRoleBinding for OTel Collector
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector
+  labels:
+    app: otel-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: otel-system
+
+---
+# ConfigMap for OTel Collector configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: otel-system
+  labels:
+    app: otel-collector
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      # Filelog receiver for container logs
+      filelog:
+        include:
+          - /var/log/containers/*.log
+        exclude:
+          # Exclude OTel Collector's own logs to prevent infinite loop
+          - /var/log/containers/*otel-collector*.log
+        include_file_path: true
+        include_file_name: false
+        operators:
+          # Parse container log format (Docker/CRI-O JSON logs)
+          - type: json_parser
+            id: parser-docker
+            timestamp:
+              parse_from: attributes.time
+              layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+            output: extract_metadata_from_filepath
+          
+          # Extract metadata from file path
+          - type: regex_parser
+            id: extract_metadata_from_filepath
+            regex: '^/var/log/containers/(?P<pod_name>[^_]+)_(?P<namespace>[^_]+)_(?P<container_name>.*)-(?P<container_id>[^.]+)\.log$'
+            parse_from: attributes["log.file.path"]
+            output: add_resource_attributes
+          
+          # Move parsed fields to resource attributes
+          - type: move
+            id: add_resource_attributes
+            from: attributes.pod_name
+            to: resource["k8s.pod.name"]
+          - type: move
+            from: attributes.namespace
+            to: resource["k8s.namespace.name"]
+          - type: move
+            from: attributes.container_name
+            to: resource["k8s.container.name"]
+          - type: move
+            from: attributes.container_id
+            to: resource["container.id"]
+          - type: move
+            from: attributes.log
+            to: body
+          - type: move
+            from: attributes.stream
+            to: attributes["log.iostream"]
+          
+          # Parse severity from stream (stdout/stderr)
+          - type: add
+            field: severity_text
+            value: INFO
+            if: 'attributes["log.iostream"] == "stdout"'
+          - type: add
+            field: severity_text
+            value: ERROR
+            if: 'attributes["log.iostream"] == "stderr"'
+
+      # Kubernetes metadata receiver
+      k8s_cluster:
+        collection_interval: 10s
+        node_conditions_to_report:
+          - Ready
+          - MemoryPressure
+          - DiskPressure
+          - PIDPressure
+          - NetworkUnavailable
+
+      # Host metrics receiver
+      hostmetrics:
+        collection_interval: 30s
+        scrapers:
+          cpu:
+          disk:
+          filesystem:
+          load:
+          memory:
+          network:
+          paging:
+          processes:
+
+    processors:
+      # Add Kubernetes metadata
+      k8sattributes:
+        auth_type: "serviceAccount"
+        passthrough: false
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.pod.name
+            - k8s.pod.uid
+            - k8s.pod.start_time
+            - k8s.deployment.name
+            - k8s.node.name
+            - k8s.container.name
+          labels:
+            - tag_name: app
+              key: app
+              from: pod
+            - tag_name: team
+              key: team
+              from: pod
+          annotations:
+            - tag_name: version
+              key: version
+              from: pod
+        pod_association:
+          - sources:
+            - from: resource_attribute
+              name: k8s.pod.name
+            - from: resource_attribute
+              name: k8s.namespace.name
+
+      # Resource processor for adding environment info
+      resource:
+        attributes:
+          - key: environment
+            value: production
+            action: upsert
+          - key: cluster.name
+            value: mcp-registry-production
+            action: upsert
+
+      # Memory limiter to prevent OOM
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 15
+
+      # Batch processor for better performance
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+        send_batch_max_size: 2048
+
+    exporters:
+      # Debug exporter for troubleshooting
+      debug:
+        verbosity: basic
+        sampling_initial: 5
+        sampling_thereafter: 100
+
+      # OTLP exporter for sending to backend
+      otlp:
+        endpoint: "otel-backend:4317"  # Update with actual backend endpoint
+        tls:
+          insecure: true  # Set to false in production with proper TLS
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+
+      # Prometheus exporter for metrics
+      prometheus:
+        endpoint: "0.0.0.0:8888"
+        namespace: otel_collector
+        const_labels:
+          environment: production
+        resource_to_telemetry_conversion:
+          enabled: true
+
+    extensions:
+      # Health check extension
+      health_check:
+        endpoint: 0.0.0.0:13133
+        path: "/health"
+        check_collector_pipeline:
+          enabled: true
+          interval: 5s
+          exporter_failure_threshold: 5
+
+      # Performance profiler
+      pprof:
+        endpoint: 0.0.0.0:1777
+
+      # Memory ballast for heap optimization
+      memory_ballast:
+        size_in_percentage: 20
+
+    service:
+      extensions: [health_check, pprof, memory_ballast]
+      
+      pipelines:
+        # Logs pipeline
+        logs:
+          receivers: [filelog]
+          processors: [memory_limiter, k8sattributes, resource, batch]
+          exporters: [debug, otlp]
+        
+        # Metrics pipeline
+        metrics:
+          receivers: [k8s_cluster, hostmetrics]
+          processors: [memory_limiter, resource, batch]
+          exporters: [prometheus, otlp]
+
+      telemetry:
+        logs:
+          level: info
+          initial_fields:
+            service.name: otel-collector
+            service.version: 0.1.0
+        metrics:
+          level: detailed
+          address: 0.0.0.0:8889
+
+---
+# DaemonSet for OTel Collector
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector
+  namespace: otel-system
+  labels:
+    app: otel-collector
+spec:
+  selector:
+    matchLabels:
+      app: otel-collector
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8889"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: otel-collector
+      hostNetwork: false
+      dnsPolicy: ClusterFirst
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.91.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config=/conf/otel-collector-config.yaml
+          env:
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K8S_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: K8S_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: K8S_POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: GOMEMLIMIT
+              value: "400MiB"
+          ports:
+            - name: metrics
+              containerPort: 8889
+              protocol: TCP
+            - name: prometheus
+              containerPort: 8888
+              protocol: TCP
+            - name: healthcheck
+              containerPort: 13133
+              protocol: TCP
+            - name: pprof
+              containerPort: 1777
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 13133
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: otel-collector-config
+              mountPath: /conf
+              readOnly: true
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534  # nobody user
+      volumes:
+        - name: otel-collector-config
+          configMap:
+            name: otel-collector-config
+            items:
+              - key: otel-collector-config.yaml
+                path: otel-collector-config.yaml
+        - name: varlog
+          hostPath:
+            path: /var/log
+            type: Directory
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+            type: Directory
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+
+---
+# Service for OTel Collector metrics endpoint
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector-metrics
+  namespace: otel-system
+  labels:
+    app: otel-collector
+spec:
+  selector:
+    app: otel-collector
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 8889
+      targetPort: 8889
+      protocol: TCP
+    - name: prometheus
+      port: 8888
+      targetPort: 8888
+      protocol: TCP

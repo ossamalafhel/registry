@@ -45,5 +45,11 @@ func DeployAll(ctx *pulumi.Context, cluster *providers.ProviderInfo, backupStora
 		return nil, err
 	}
 
+	// Deploy OpenTelemetry Collector for log collection
+	err = DeployOTelCollector(ctx, cluster, environment)
+	if err != nil {
+		return nil, err
+	}
+
 	return service, nil
 }
