@@ -1,0 +1,356 @@
+# OpenTelemetry Collector Helm Values for Loki Integration
+# Implements AC2: Log Collection and Shipping with 10-second batching
+
+# Global configuration
+global:
+  environment: production
+  cluster:
+    name: mcp-registry-production
+  
+# Image configuration
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: 0.91.0
+  pullPolicy: IfNotPresent
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: otel-collector
+  annotations: {}
+
+# RBAC configuration
+rbac:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources:
+        - pods
+        - namespaces
+        - nodes
+        - endpoints
+        - services
+        - configmaps
+        - secrets
+        - events
+        - pods/log
+      verbs:
+        - get
+        - watch
+        - list
+    - apiGroups: ["apps"]
+      resources:
+        - deployments
+        - daemonsets
+        - statefulsets
+        - replicasets
+      verbs:
+        - get
+        - watch
+        - list
+    - apiGroups: ["batch"]
+      resources:
+        - jobs
+        - cronjobs
+      verbs:
+        - get
+        - watch
+        - list
+    - apiGroups: ["events.k8s.io"]
+      resources:
+        - events
+      verbs:
+        - get
+        - watch
+        - list
+
+# DaemonSet configuration
+daemonset:
+  enabled: true
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  
+  # Pod annotations
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8889"
+    prometheus.io/path: "/metrics"
+  
+  # Resources
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  
+  # Environment variables
+  env:
+    - name: GOMEMLIMIT
+      value: "400MiB"
+    - name: LOKI_ENDPOINT
+      value: "http://loki:3100/loki/api/v1/push"
+    - name: LOKI_TENANT_ID
+      value: "mcp-registry"
+    - name: LOKI_TLS_INSECURE
+      value: "true"
+    - name: LOKI_FAILOVER_ENDPOINT
+      value: "http://loki-failover:3100/loki/api/v1/push"
+    - name: OTLP_ENDPOINT
+      value: "otel-backend:4317"
+    - name: OTLP_TLS_INSECURE
+      value: "true"
+    - name: ENVIRONMENT
+      value: "production"
+    - name: CLUSTER_NAME
+      value: "mcp-registry-production"
+  
+  # Volume mounts
+  volumeMounts:
+    - name: varlog
+      mountPath: /var/log
+      readOnly: true
+    - name: varlibdockercontainers
+      mountPath: /var/lib/docker/containers
+      readOnly: true
+    - name: otel-storage
+      mountPath: /var/lib/otel
+  
+  # Volumes
+  volumes:
+    - name: varlog
+      hostPath:
+        path: /var/log
+        type: Directory
+    - name: varlibdockercontainers
+      hostPath:
+        path: /var/lib/docker/containers
+        type: Directory
+    - name: otel-storage
+      emptyDir: {}
+  
+  # Security context
+  securityContext:
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    runAsUser: 65534
+  
+  # Tolerations for running on all nodes
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+
+# Service configuration
+service:
+  type: ClusterIP
+  ports:
+    metrics:
+      port: 8889
+      targetPort: 8889
+      protocol: TCP
+    healthcheck:
+      port: 13133
+      targetPort: 13133
+      protocol: TCP
+
+# Health checks
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 13133
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 13133
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Collector configuration
+config:
+  receivers:
+    filelog:
+      enabled: true
+      include:
+        - /var/log/containers/*.log
+      exclude:
+        - /var/log/containers/*otel-collector*.log
+      max_concurrent_files: 1024
+      start_at: beginning
+    
+    k8s_events:
+      enabled: true
+      namespaces:
+        - default
+        - otel-system
+        - mcp-registry
+  
+  processors:
+    batch:
+      # AC2 requirement: 10-second timeout for log batching
+      timeout: 10s
+      send_batch_size: 8192
+      send_batch_max_size: 16384
+    
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 75
+      spike_limit_percentage: 15
+    
+    k8sattributes:
+      enabled: true
+      extract:
+        metadata:
+          - k8s.namespace.name
+          - k8s.pod.name
+          - k8s.deployment.name
+          - k8s.node.name
+          - k8s.container.name
+        labels:
+          - app
+          - team
+          - component
+          - version
+    
+    resource:
+      attributes:
+        - key: environment
+          value: production
+          action: upsert
+        - key: cluster.name
+          value: mcp-registry-production
+          action: upsert
+    
+    filter:
+      enabled: true
+      exclude_health_checks: true
+      exclude_patterns:
+        - ".*health.*check.*"
+        - ".*readiness.*probe.*"
+        - ".*liveness.*probe.*"
+  
+  exporters:
+    loki:
+      enabled: true
+      endpoint: "http://loki:3100/loki/api/v1/push"
+      tenant_id: "mcp-registry"
+      tls:
+        insecure: true
+      retry:
+        enabled: true
+        initial_interval: 1s
+        max_interval: 30s
+        max_elapsed_time: 300s
+      timeout: 30s
+      format: json
+      labels:
+        namespace: true
+        pod: true
+        container: true
+        node: true
+        deployment: true
+        environment: true
+        cluster: true
+        app: true
+        team: true
+        component: true
+        level: true
+        service: true
+    
+    loki_failover:
+      enabled: false  # Enable for production with failover
+      endpoint: "http://loki-failover:3100/loki/api/v1/push"
+      tenant_id: "mcp-registry"
+      tls:
+        insecure: true
+      retry:
+        enabled: true
+        initial_interval: 1s
+        max_interval: 10s
+        max_elapsed_time: 60s
+      timeout: 15s
+      format: json
+    
+    debug:
+      enabled: true
+      verbosity: basic
+      sampling_initial: 5
+      sampling_thereafter: 100
+    
+    otlp:
+      enabled: false  # Enable if using additional OTLP backend
+      endpoint: "otel-backend:4317"
+      tls:
+        insecure: true
+  
+  pipelines:
+    logs:
+      receivers:
+        - filelog
+      processors:
+        - memory_limiter
+        - k8sattributes
+        - resource
+        - filter
+        - batch  # 10-second batching for AC2
+      exporters:
+        - loki
+        - debug
+    
+    logs_events:
+      receivers:
+        - k8s_events
+      processors:
+        - memory_limiter
+        - resource
+        - batch
+      exporters:
+        - loki
+
+# ServiceMonitor for Prometheus Operator
+serviceMonitor:
+  enabled: false  # Enable if using Prometheus Operator
+  interval: 30s
+  path: /metrics
+  labels:
+    app: otel-collector
+    component: logging
+
+# Autoscaling (not recommended for DaemonSet)
+autoscaling:
+  enabled: false
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Network policies
+networkPolicy:
+  enabled: false  # Enable in production
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
