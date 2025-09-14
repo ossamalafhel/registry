@@ -134,8 +134,8 @@ func (h *GitHubHandler) getGitHubUser(ctx context.Context, token string) (*GitHu
 	return &user, nil
 }
 
-func (h *GitHubHandler) getGitHubUserOrgs(ctx context.Context, username string, token string) ([]GitHubUserOrOrg, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.baseURL+"/users/"+username+"/orgs", nil)
+func (h *GitHubHandler) getGitHubUserOrgs(ctx context.Context, _ string, token string) ([]GitHubUserOrOrg, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.baseURL+"/user/orgs", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

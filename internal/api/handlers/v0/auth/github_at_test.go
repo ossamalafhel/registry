@@ -22,7 +22,7 @@ import (
 
 const (
 	githubUserEndpoint = "/user"
-	githubOrgsEndpoint = "/users/testuser/orgs"
+	githubOrgsEndpoint = "/user/orgs"
 )
 
 func TestGitHubHandler_ExchangeToken(t *testing.T) {
@@ -225,7 +225,7 @@ func TestGitHubHandler_ExchangeToken(t *testing.T) {
 				}
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(user) //nolint:errcheck
-			case "/users/user with spaces/orgs":
+			case githubOrgsEndpoint:
 				orgs := []v0auth.GitHubUserOrOrg{}
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(orgs) //nolint:errcheck
@@ -537,7 +537,7 @@ func TestValidGitHubNames(t *testing.T) {
 					}
 					w.Header().Set("Content-Type", "application/json")
 					json.NewEncoder(w).Encode(user) //nolint:errcheck
-				case "/users/" + tc.username + "/orgs":
+				case githubOrgsEndpoint:
 					w.Header().Set("Content-Type", "application/json")
 					json.NewEncoder(w).Encode(tc.orgs) //nolint:errcheck
 				}
