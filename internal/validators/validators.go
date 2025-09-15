@@ -343,7 +343,7 @@ func validateRemoteTransport(obj *model.Transport) error {
 }
 
 // ValidatePublishRequest validates a complete publish request including extensions
-func ValidatePublishRequest(req apiv0.ServerJSON, cfg *config.Config) error {
+func ValidatePublishRequest(ctx context.Context, req apiv0.ServerJSON, cfg *config.Config) error {
 	// Validate publisher extensions in _meta
 	if err := validatePublisherExtensions(req); err != nil {
 		return err
@@ -356,7 +356,6 @@ func ValidatePublishRequest(req apiv0.ServerJSON, cfg *config.Config) error {
 
 	// Validate registry ownership for all packages if validation is enabled and server is not deleted
 	if cfg.EnableRegistryValidation && req.Status != model.StatusDeleted {
-		ctx := context.Background()
 		for i, pkg := range req.Packages {
 			if err := ValidatePackage(ctx, pkg, req.Name); err != nil {
 				return fmt.Errorf("registry validation failed for package %d (%s): %w", i, pkg.Identifier, err)
@@ -405,12 +404,22 @@ func parseServerName(serverJSON apiv0.ServerJSON) (string, error) {
 	// Check for multiple slashes - reject if found
 	slashCount := strings.Count(name, "/")
 	if slashCount > 1 {
-		return "", fmt.Errorf("%w: %s", ErrMultipleSlashesInServerName, name)
+		return "", ErrMultipleSlashesInServerName
 	}
 
 	parts := strings.SplitN(name, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", fmt.Errorf("server name must be in format 'dns-namespace/name' with non-empty namespace and name parts")
+	}
+
+	// Validate namespace and name format according to schema
+	// Pattern: ^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$
+	if !serverNamespacePattern.MatchString(parts[0]) {
+		return "", fmt.Errorf("server namespace '%s' %w", parts[0], ErrInvalidNamespaceCharacters)
+	}
+	
+	if !serverNamePattern.MatchString(parts[1]) {
+		return "", fmt.Errorf("server name '%s' %w", parts[1], ErrInvalidNameCharacters)
 	}
 
 	return name, nil

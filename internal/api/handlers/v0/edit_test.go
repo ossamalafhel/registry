@@ -237,7 +237,7 @@ func TestEditServerEndpoint(t *testing.T) {
 			},
 			serverID:       testServerID,
 			expectedStatus: http.StatusBadRequest,
-			expectedError:  "Bad Request",
+			expectedError:  "server name must be in format 'dns-namespace/name'",
 		},
 		{
 			name: "cannot undelete server",

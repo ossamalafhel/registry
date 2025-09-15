@@ -141,7 +141,7 @@ func TestPublishIntegration(t *testing.T) {
 
 	t.Run("publish fails with missing authorization header", func(t *testing.T) {
 		publishReq := apiv0.ServerJSON{
-			Name: "test-server",
+			Name: "com.example/test-server",
 		}
 
 		body, err := json.Marshal(publishReq)

@@ -77,7 +77,7 @@ func (s *registryServiceImpl) Publish(req apiv0.ServerJSON) (*apiv0.ServerJSON, 
 	defer cancel()
 
 	// Validate the request
-	if err := validators.ValidatePublishRequest(req, s.cfg); err != nil {
+	if err := validators.ValidatePublishRequest(ctx, req, s.cfg); err != nil {
 		return nil, err
 	}
 
@@ -206,7 +206,7 @@ func (s *registryServiceImpl) EditServer(id string, req apiv0.ServerJSON) (*apiv
 	defer cancel()
 
 	// Validate the request
-	if err := validators.ValidatePublishRequest(req, s.cfg); err != nil {
+	if err := validators.ValidatePublishRequest(ctx, req, s.cfg); err != nil {
 		return nil, err
 	}
 

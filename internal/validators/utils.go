@@ -12,6 +12,11 @@ var (
 	// For example:	// - GitHub: https://github.com/user/repo
 	githubURLRegex = regexp.MustCompile(`^https?://(www\.)?github\.com/[\w.-]+/[\w.-]+/?$`)
 	gitlabURLRegex = regexp.MustCompile(`^https?://(www\.)?gitlab\.com/[\w.-]+/[\w.-]+/?$`)
+	
+	// Regular expressions for validating server name components
+	// Pattern: ^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$
+	serverNamespacePattern = regexp.MustCompile(`^[a-zA-Z0-9.-]+$`)
+	serverNamePattern      = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 )
 
 // IsValidRepositoryURL checks if the given URL is valid for the specified repository source

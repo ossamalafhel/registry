@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/registry/internal/config"
 	"github.com/modelcontextprotocol/registry/internal/database"
 	"github.com/modelcontextprotocol/registry/internal/service"
+	"github.com/modelcontextprotocol/registry/internal/validators"
 	apiv0 "github.com/modelcontextprotocol/registry/pkg/api/v0"
 	"github.com/modelcontextprotocol/registry/pkg/model"
 )
@@ -68,6 +69,10 @@ func RegisterEditEndpoints(api huma.API, registry service.RegistryService, cfg *
 
 		// Prevent renaming servers
 		if currentServer.Name != input.Body.Name {
+			// Validate the new name format before rejecting the rename
+			if err := validators.ValidatePublishRequest(ctx, input.Body, cfg); err != nil {
+				return nil, huma.Error400BadRequest(err.Error())
+			}
 			return nil, huma.Error400BadRequest("Cannot rename server")
 		}
 

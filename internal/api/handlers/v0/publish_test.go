@@ -80,7 +80,7 @@ func TestPublishEndpoint(t *testing.T) {
 		{
 			name: "successful publish with no auth (AuthMethodNone)",
 			requestBody: apiv0.ServerJSON{
-				Name:        "example/test-server",
+				Name:        "com.example/test-server",
 				Description: "A test server without auth",
 				Repository: model.Repository{
 					URL:    "https://github.com/example/test-server",
@@ -92,7 +92,7 @@ func TestPublishEndpoint(t *testing.T) {
 			tokenClaims: &auth.JWTClaims{
 				AuthMethod: auth.MethodNone,
 				Permissions: []auth.Permission{
-					{Action: auth.PermissionActionPublish, ResourcePattern: "example/*"},
+					{Action: auth.PermissionActionPublish, ResourcePattern: "com.example/*"},
 				},
 			},
 			setupRegistryService: func(_ service.RegistryService) {
@@ -127,7 +127,7 @@ func TestPublishEndpoint(t *testing.T) {
 		{
 			name: "invalid token",
 			requestBody: apiv0.ServerJSON{
-				Name:        "test-server",
+				Name:        "com.example/test-server",
 				Description: "A test server",
 				Version: "1.0.0",
 			},
@@ -165,7 +165,7 @@ func TestPublishEndpoint(t *testing.T) {
 		{
 			name: "registry service error",
 			requestBody: apiv0.ServerJSON{
-				Name:        "example/test-server",
+				Name:        "com.example/test-server",
 				Description: "A test server",
 				Version: "1.0.0",
 				Repository: model.Repository{
@@ -183,7 +183,7 @@ func TestPublishEndpoint(t *testing.T) {
 			setupRegistryService: func(registry service.RegistryService) {
 				// Pre-publish the same server to cause duplicate version error
 				existingServer := apiv0.ServerJSON{
-					Name:        "example/test-server",
+					Name:        "com.example/test-server",
 					Description: "Existing test server",
 					Version: "1.0.0",
 					Repository: model.Repository{
@@ -224,7 +224,6 @@ func TestPublishEndpoint(t *testing.T) {
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusOK,
 		},
-		// IB-2-registry: Integration test for multi-slash server name rejection
 		{
 			name: "invalid server name - multiple slashes (two slashes)",
 			requestBody: apiv0.ServerJSON{
@@ -245,7 +244,7 @@ func TestPublishEndpoint(t *testing.T) {
 			},
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusBadRequest,
-			expectedError:        "server name format is invalid: must contain exactly one slash",
+			expectedError:        "server name cannot contain multiple slashes",
 		},
 		{
 			name: "invalid server name - multiple slashes (three slashes)",
@@ -262,7 +261,7 @@ func TestPublishEndpoint(t *testing.T) {
 			},
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusBadRequest,
-			expectedError:        "server name format is invalid: must contain exactly one slash",
+			expectedError:        "server name cannot contain multiple slashes",
 		},
 		{
 			name: "invalid server name - consecutive slashes",
@@ -279,7 +278,7 @@ func TestPublishEndpoint(t *testing.T) {
 			},
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusBadRequest,
-			expectedError:        "server name format is invalid: must contain exactly one slash",
+			expectedError:        "server name cannot contain multiple slashes",
 		},
 		{
 			name: "invalid server name - URL-like path",
@@ -296,7 +295,7 @@ func TestPublishEndpoint(t *testing.T) {
 			},
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusBadRequest,
-			expectedError:        "server name format is invalid: must contain exactly one slash",
+			expectedError:        "server name cannot contain multiple slashes",
 		},
 		{
 			name: "invalid server name - many slashes",
@@ -313,7 +312,7 @@ func TestPublishEndpoint(t *testing.T) {
 			},
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusBadRequest,
-			expectedError:        "server name format is invalid: must contain exactly one slash",
+			expectedError:        "server name cannot contain multiple slashes",
 		},
 		{
 			name: "invalid server name - with packages and remotes",
@@ -351,7 +350,41 @@ func TestPublishEndpoint(t *testing.T) {
 			},
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusBadRequest,
-			expectedError:        "server name format is invalid: must contain exactly one slash",
+			expectedError:        "server name cannot contain multiple slashes",
+		},
+		{
+			name: "invalid server name - invalid namespace characters",
+			requestBody: apiv0.ServerJSON{
+				Name:        "com.example@/test-server",
+				Description: "Server with invalid namespace characters",
+				Version:     "1.0.0",
+			},
+			tokenClaims: &auth.JWTClaims{
+				AuthMethod: auth.MethodNone,
+				Permissions: []auth.Permission{
+					{Action: auth.PermissionActionPublish, ResourcePattern: "*"},
+				},
+			},
+			setupRegistryService: func(_ service.RegistryService) {},
+			expectedStatus:       http.StatusBadRequest,
+			expectedError:        "namespace contains invalid characters",
+		},
+		{
+			name: "invalid server name - invalid name characters",
+			requestBody: apiv0.ServerJSON{
+				Name:        "com.example/test@server",
+				Description: "Server with invalid name characters",
+				Version:     "1.0.0",
+			},
+			tokenClaims: &auth.JWTClaims{
+				AuthMethod: auth.MethodNone,
+				Permissions: []auth.Permission{
+					{Action: auth.PermissionActionPublish, ResourcePattern: "*"},
+				},
+			},
+			setupRegistryService: func(_ service.RegistryService) {},
+			expectedStatus:       http.StatusBadRequest,
+			expectedError:        "name contains invalid characters",
 		},
 	}
 
@@ -504,8 +537,8 @@ func TestPublishEndpoint_MultipleSlashesEdgeCases(t *testing.T) {
 				"%s: expected status %d, got %d", tc.description, tc.expectedStatus, rr.Code)
 
 			if tc.expectedStatus == http.StatusBadRequest {
-				assert.Contains(t, rr.Body.String(), "server name format is invalid: must contain exactly one slash",
-					"%s: should contain specific error message", tc.description)
+				assert.Contains(t, rr.Body.String(), "server name",
+					"%s: should contain server name validation error", tc.description)
 			}
 		})
 	}
