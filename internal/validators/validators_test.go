@@ -179,7 +179,7 @@ func TestValidate(t *testing.T) {
 				Description: "A test server",
 				Version:     "1.0.0",
 			},
-			expectedError: validators.ErrMultipleSlashesInServerName.Error(),
+			expectedError: validators.ErrInvalidServerNameFormat.Error(),
 		},
 		{
 			name: "server name with three slashes",
@@ -188,7 +188,7 @@ func TestValidate(t *testing.T) {
 				Description: "A test server",
 				Version:     "1.0.0",
 			},
-			expectedError: validators.ErrMultipleSlashesInServerName.Error(),
+			expectedError: validators.ErrInvalidServerNameFormat.Error(),
 		},
 		{
 			name: "valid server detail with all fields",
@@ -871,7 +871,7 @@ func TestValidate_ServerNameFormat(t *testing.T) {
 				Name: "com.example/server/path",
 			},
 			expectError: true,
-			errorMsg:    "server name cannot contain multiple slashes",
+			errorMsg:    "server name format is invalid: must contain exactly one slash",
 		},
 	}
 
@@ -905,31 +905,31 @@ func TestValidate_MultipleSlashesInServerName(t *testing.T) {
 			name:        "two slashes - invalid",
 			serverName:  "com.example/my-server/extra",
 			expectError: true,
-			errorMsg:    "server name cannot contain multiple slashes",
+			errorMsg:    "server name format is invalid: must contain exactly one slash",
 		},
 		{
 			name:        "three slashes - invalid",
 			serverName:  "com.example/my/server/name",
 			expectError: true,
-			errorMsg:    "server name cannot contain multiple slashes",
+			errorMsg:    "server name format is invalid: must contain exactly one slash",
 		},
 		{
 			name:        "many slashes - invalid",
 			serverName:  "com.example/a/b/c/d/e",
 			expectError: true,
-			errorMsg:    "server name cannot contain multiple slashes",
+			errorMsg:    "server name format is invalid: must contain exactly one slash",
 		},
 		{
 			name:        "double slash - invalid",
 			serverName:  "com.example//server",
 			expectError: true,
-			errorMsg:    "server name cannot contain multiple slashes",
+			errorMsg:    "server name format is invalid: must contain exactly one slash",
 		},
 		{
 			name:        "trailing slash counts as two - invalid",
 			serverName:  "com.example/server/",
 			expectError: true,
-			errorMsg:    "server name cannot contain multiple slashes",
+			errorMsg:    "server name format is invalid: must contain exactly one slash",
 		},
 		{
 			name:        "no slash - still invalid for different reason",
@@ -946,7 +946,7 @@ func TestValidate_MultipleSlashesInServerName(t *testing.T) {
 			name:        "complex namespace with multiple slashes - invalid",
 			serverName:  "com.microsoft.azure/service/webapp-server",
 			expectError: true,
-			errorMsg:    "server name cannot contain multiple slashes",
+			errorMsg:    "server name format is invalid: must contain exactly one slash",
 		},
 	}
 

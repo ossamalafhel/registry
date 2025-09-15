@@ -224,6 +224,7 @@ func TestPublishEndpoint(t *testing.T) {
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusOK,
 		},
+		// IB-2-registry: Integration test for multi-slash server name rejection
 		{
 			name: "invalid server name - multiple slashes (two slashes)",
 			requestBody: apiv0.ServerJSON{
@@ -244,7 +245,7 @@ func TestPublishEndpoint(t *testing.T) {
 			},
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusBadRequest,
-			expectedError:        "server name cannot contain multiple slashes",
+			expectedError:        "server name format is invalid: must contain exactly one slash",
 		},
 		{
 			name: "invalid server name - multiple slashes (three slashes)",
@@ -261,7 +262,7 @@ func TestPublishEndpoint(t *testing.T) {
 			},
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusBadRequest,
-			expectedError:        "server name cannot contain multiple slashes",
+			expectedError:        "server name format is invalid: must contain exactly one slash",
 		},
 		{
 			name: "invalid server name - consecutive slashes",
@@ -278,7 +279,7 @@ func TestPublishEndpoint(t *testing.T) {
 			},
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusBadRequest,
-			expectedError:        "server name cannot contain multiple slashes",
+			expectedError:        "server name format is invalid: must contain exactly one slash",
 		},
 		{
 			name: "invalid server name - URL-like path",
@@ -295,7 +296,7 @@ func TestPublishEndpoint(t *testing.T) {
 			},
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusBadRequest,
-			expectedError:        "server name cannot contain multiple slashes",
+			expectedError:        "server name format is invalid: must contain exactly one slash",
 		},
 		{
 			name: "invalid server name - many slashes",
@@ -312,7 +313,7 @@ func TestPublishEndpoint(t *testing.T) {
 			},
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusBadRequest,
-			expectedError:        "server name cannot contain multiple slashes",
+			expectedError:        "server name format is invalid: must contain exactly one slash",
 		},
 		{
 			name: "invalid server name - with packages and remotes",
@@ -350,7 +351,7 @@ func TestPublishEndpoint(t *testing.T) {
 			},
 			setupRegistryService: func(_ service.RegistryService) {},
 			expectedStatus:       http.StatusBadRequest,
-			expectedError:        "server name cannot contain multiple slashes",
+			expectedError:        "server name format is invalid: must contain exactly one slash",
 		},
 	}
 
@@ -503,7 +504,7 @@ func TestPublishEndpoint_MultipleSlashesEdgeCases(t *testing.T) {
 				"%s: expected status %d, got %d", tc.description, tc.expectedStatus, rr.Code)
 
 			if tc.expectedStatus == http.StatusBadRequest {
-				assert.Contains(t, rr.Body.String(), "server name cannot contain multiple slashes",
+				assert.Contains(t, rr.Body.String(), "server name format is invalid: must contain exactly one slash",
 					"%s: should contain specific error message", tc.description)
 			}
 		})

@@ -405,7 +405,7 @@ func parseServerName(serverJSON apiv0.ServerJSON) (string, error) {
 	// Check for multiple slashes - reject if found
 	slashCount := strings.Count(name, "/")
 	if slashCount > 1 {
-		return "", ErrMultipleSlashesInServerName
+		return "", ErrInvalidServerNameFormat
 	}
 
 	parts := strings.SplitN(name, "/", 2)

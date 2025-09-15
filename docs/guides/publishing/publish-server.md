@@ -259,7 +259,27 @@ LABEL io.modelcontextprotocol.server.name="io.github.username/server-name"
 
 The identifier is `namespace/repository`, and version is the tag and optionally digest.
 
-The official MCP registry currently only supports the official Docker registry (`https://docker.io`).
+The official MCP registry supports the following container registries:
+- **Docker Hub** (`https://docker.io`) - Default registry
+- **GitHub Container Registry** (`https://ghcr.io`) - For GitHub-hosted images
+- **Google Artifact Registry** (`https://artifactregistry.googleapis.com` or regional endpoints like `https://us-central1-docker.pkg.dev`)
+- **Google Container Registry** (`https://gcr.io` or regional endpoints like `https://us.gcr.io`)
+- **Amazon ECR Public** (`https://public.ecr.aws`)
+- **Azure Container Registry** (`https://azurecr.io` or instance-specific like `myregistry.azurecr.io`)
+- **Quay.io** (`https://quay.io`)
+- **GitLab Container Registry** (`https://registry.gitlab.com`)
+
+Example configurations:
+```json
+{
+  "packages": [{
+    "registry_type": "oci",
+    "registry_base_url": "https://ghcr.io",
+    "identifier": "myorg/mcp-server",
+    "version": "v1.0.0"
+  }]
+}
+```
 
 </details>
 

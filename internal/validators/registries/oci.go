@@ -16,6 +16,11 @@ const (
 	dockerIoAPIBaseURL = "https://registry-1.docker.io"
 )
 
+// httpClientFactory is a function that creates HTTP clients. It can be overridden in tests.
+var httpClientFactory = func() *http.Client {
+	return &http.Client{Timeout: 10 * time.Second}
+}
+
 // OCIAuthResponse represents the Docker Hub authentication response
 type OCIAuthResponse struct {
 	Token string `json:"token"`
@@ -38,49 +43,84 @@ type OCIImageConfig struct {
 	} `json:"config"`
 }
 
-// ValidateOCI validates that an OCI image contains the correct MCP server name annotation
-func ValidateOCI(ctx context.Context, pkg model.Package, serverName string) error {
-	// Set default registry base URL if empty
-	if pkg.RegistryBaseURL == "" {
-		pkg.RegistryBaseURL = model.RegistryURLDocker
+// supportedRegistries returns a map of supported OCI registries and their API base URLs
+func supportedRegistries() map[string]string {
+	return map[string]string{
+		model.RegistryURLDocker:      dockerIoAPIBaseURL,
+		model.RegistryURLGHCR:        "https://ghcr.io",
+		model.RegistryURLGAR:         "https://artifactregistry.googleapis.com",
+		model.RegistryURLGCR:         "https://gcr.io",
+		model.RegistryURLECR:         "https://public.ecr.aws",
+		model.RegistryURLACR:         "https://azurecr.io",
+		model.RegistryURLQuay:        "https://quay.io",
+		model.RegistryURLGitLabCR:    "https://registry.gitlab.com",
+		model.RegistryURLDockerHub:   dockerIoAPIBaseURL, // Same as Docker
+		model.RegistryURLJFrogCR:     "https://jfrog.io",
+		model.RegistryURLHarborCR:    "https://goharbor.io",
+		model.RegistryURLAlibabaACR:  "https://cr.console.aliyun.com",
+		model.RegistryURLIBMCR:       "https://icr.io",
+		model.RegistryURLOracleCR:    "https://container-registry.oracle.com",
+		model.RegistryURLDigitalOceanCR: "https://registry.digitalocean.com",
+	}
+}
+
+// getAPIBaseURL determines the API base URL for the given registry
+func getAPIBaseURL(registryBaseURL string) (string, error) {
+	registries := supportedRegistries()
+	if apiBaseURL, ok := registries[registryBaseURL]; ok {
+		return apiBaseURL, nil
 	}
 
-	// Validate that the registry base URL matches OCI/Docker exactly
-	if pkg.RegistryBaseURL != model.RegistryURLDocker {
-		return fmt.Errorf("registry type and base URL do not match: '%s' is not valid for registry type '%s'. Expected: %s",
-			pkg.RegistryBaseURL, model.RegistryTypeOCI, model.RegistryURLDocker)
+	// Check for regional endpoints and special cases
+	switch {
+	case strings.Contains(registryBaseURL, "-docker.pkg.dev"):
+		// For GAR, check if it's a regional endpoint
+		return registryBaseURL, nil
+	case strings.Contains(registryBaseURL, ".gcr.io"):
+		// Support regional GCR endpoints like us.gcr.io, eu.gcr.io, asia.gcr.io
+		return registryBaseURL, nil
+	case strings.Contains(registryBaseURL, ".amazonaws.com"):
+		// Support regional ECR endpoints
+		return registryBaseURL, nil
+	case strings.Contains(registryBaseURL, ".azurecr.io"):
+		// Support ACR instances like myregistry.azurecr.io
+		return registryBaseURL, nil
+	case strings.HasPrefix(registryBaseURL, "http://127.0.0.1:") || strings.HasPrefix(registryBaseURL, "http://localhost:"):
+		// Support local test servers
+		return registryBaseURL, nil
+	default:
+		supportedList := []string{"docker.io", "ghcr.io", "gcr.io", "quay.io", "artifactregistry.googleapis.com"}
+		return "", fmt.Errorf("unsupported OCI registry: '%s'. Supported registries: %s",
+			registryBaseURL, strings.Join(supportedList, ", "))
 	}
+}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-
-	// Parse image reference (namespace/repo or repo)
-	namespace, repo, err := parseImageReference(pkg.Identifier)
-	if err != nil {
-		return fmt.Errorf("invalid OCI image reference: %w", err)
-	}
-
-	apiBaseURL := pkg.RegistryBaseURL
-	if pkg.RegistryBaseURL == model.RegistryURLDocker {
-		// docker.io is an exceptional registry that was created before standardisation, so needs a custom API base url
-		// https://github.com/containers/image/blob/5e4845dddd57598eb7afeaa6e0f4c76531bd3c91/docker/docker_client.go#L225-L229
-		apiBaseURL = dockerIoAPIBaseURL
-	}
-
-	tag := pkg.Version
-	manifestURL := fmt.Sprintf("%s/v2/%s/%s/manifests/%s", apiBaseURL, namespace, repo, tag)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create manifest request: %w", err)
-	}
-
-	// Get auth token for docker.io
-	// We only support auth for docker.io, other registries must allow unauthed requests
+// setAuthHeader sets the appropriate authentication header for the registry
+func setAuthHeader(ctx context.Context, req *http.Request, client *http.Client, apiBaseURL, _, namespace, repo string) error {
 	if apiBaseURL == dockerIoAPIBaseURL {
+		// Docker Hub requires token authentication
 		token, err := getDockerIoAuthToken(ctx, client, namespace, repo)
 		if err != nil {
 			return fmt.Errorf("failed to authenticate with Docker registry: %w", err)
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	// Other registries allow anonymous pulls for public images
+	// No auth header needed for GHCR, GAR, GCR, Quay, GitLab CR, ECR, etc.
+	return nil
+}
+
+// fetchManifest retrieves and validates the OCI manifest
+func fetchManifest(ctx context.Context, client *http.Client, apiBaseURL, namespace, repo, tag string) (*OCIManifest, error) {
+	manifestURL := fmt.Sprintf("%s/v2/%s/%s/manifests/%s", apiBaseURL, namespace, repo, tag)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create manifest request: %w", err)
+	}
+
+	// Handle authentication based on registry type
+	if err := setAuthHeader(ctx, req, client, apiBaseURL, "", namespace, repo); err != nil {
+		return nil, err
 	}
 
 	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json,application/vnd.oci.image.manifest.v1+json")
@@ -88,25 +128,61 @@ func ValidateOCI(ctx context.Context, pkg model.Package, serverName string) erro
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to fetch OCI manifest: %w", err)
+		return nil, fmt.Errorf("failed to fetch OCI manifest: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("OCI image '%s/%s:%s' not found (status: %d)", namespace, repo, tag, resp.StatusCode)
+		return nil, fmt.Errorf("OCI image '%s/%s:%s' not found (status: %d)", namespace, repo, tag, resp.StatusCode)
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
 		// Rate limited, skip validation for now
 		log.Printf("Warning: Rate limited when accessing OCI image '%s/%s:%s'. Skipping validation.", namespace, repo, tag)
-		return nil
+		// Return special marker manifest with Manifests containing a special marker
+		return &OCIManifest{Manifests: []struct{Digest string `json:"digest"`}{{Digest: "__RATE_LIMITED__"}}}, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to fetch OCI manifest (status: %d)", resp.StatusCode)
+		return nil, fmt.Errorf("failed to fetch OCI manifest (status: %d)", resp.StatusCode)
 	}
 
 	var manifest OCIManifest
 	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
-		return fmt.Errorf("failed to parse OCI manifest: %w", err)
+		return nil, fmt.Errorf("failed to parse OCI manifest: %w", err)
+	}
+
+	return &manifest, nil
+}
+
+// ValidateOCI validates that an OCI image contains the correct MCP server name annotation
+func ValidateOCI(ctx context.Context, pkg model.Package, serverName string) error {
+	// Set default registry base URL if empty
+	if pkg.RegistryBaseURL == "" {
+		pkg.RegistryBaseURL = model.RegistryURLDocker
+	}
+
+	// Validate that the registry is supported
+	apiBaseURL, err := getAPIBaseURL(pkg.RegistryBaseURL)
+	if err != nil {
+		return err
+	}
+
+	client := httpClientFactory()
+
+	// Parse image reference (namespace/repo or repo)
+	namespace, repo, err := parseImageReference(pkg.Identifier)
+	if err != nil {
+		return fmt.Errorf("invalid OCI image reference: %w", err)
+	}
+
+	// Fetch the manifest
+	manifest, err := fetchManifest(ctx, client, apiBaseURL, namespace, repo, pkg.Version)
+	if err != nil {
+		return err
+	}
+	// Check if we got rate limited
+	if len(manifest.Manifests) == 1 && manifest.Manifests[0].Digest == "__RATE_LIMITED__" {
+		// Rate limited, skip validation
+		return nil
 	}
 
 	// Handle multi-arch images by using first manifest
@@ -123,7 +199,7 @@ func ValidateOCI(ctx context.Context, pkg model.Package, serverName string) erro
 	}
 
 	if configDigest == "" {
-		return fmt.Errorf("unable to determine image config digest for '%s/%s:%s'", namespace, repo, tag)
+		return fmt.Errorf("unable to determine image config digest for '%s/%s:%s'", namespace, repo, pkg.Version)
 	}
 
 	// Get image config (contains labels)
@@ -134,7 +210,7 @@ func ValidateOCI(ctx context.Context, pkg model.Package, serverName string) erro
 
 	mcpName, exists := config.Config.Labels["io.modelcontextprotocol.server.name"]
 	if !exists {
-		return fmt.Errorf("OCI image '%s/%s:%s' is missing required annotation. Add this to your Dockerfile: LABEL io.modelcontextprotocol.server.name=\"%s\"", namespace, repo, tag, serverName)
+		return fmt.Errorf("OCI image '%s/%s:%s' is missing required annotation. Add this to your Dockerfile: LABEL io.modelcontextprotocol.server.name=\"%s\"", namespace, repo, pkg.Version, serverName)
 	}
 
 	if mcpName != serverName {
@@ -191,7 +267,7 @@ func getSpecificManifest(ctx context.Context, client *http.Client, apiBaseURL, n
 		return nil, fmt.Errorf("failed to create specific manifest request: %w", err)
 	}
 
-	// Get auth token for docker.io
+	// Handle authentication for specific registries
 	if apiBaseURL == dockerIoAPIBaseURL {
 		token, err := getDockerIoAuthToken(ctx, client, namespace, repo)
 		if err != nil {
@@ -199,6 +275,7 @@ func getSpecificManifest(ctx context.Context, client *http.Client, apiBaseURL, n
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	// Other registries (GHCR, GAR, etc.) allow anonymous pulls for public images
 
 	req.Header.Set("Accept", "application/vnd.oci.image.manifest.v1+json")
 	req.Header.Set("User-Agent", "MCP-Registry-Validator/1.0")
@@ -229,7 +306,7 @@ func getImageConfig(ctx context.Context, client *http.Client, apiBaseURL, namesp
 		return nil, fmt.Errorf("failed to create config request: %w", err)
 	}
 
-	// Get auth token for docker.io
+	// Handle authentication for specific registries
 	if apiBaseURL == dockerIoAPIBaseURL {
 		token, err := getDockerIoAuthToken(ctx, client, namespace, repo)
 		if err != nil {
@@ -237,6 +314,7 @@ func getImageConfig(ctx context.Context, client *http.Client, apiBaseURL, namesp
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	// Other registries (GHCR, GAR, etc.) allow anonymous pulls for public images
 
 	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json")
 	req.Header.Set("User-Agent", "MCP-Registry-Validator/1.0")
