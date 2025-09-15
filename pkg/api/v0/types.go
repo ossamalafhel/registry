@@ -29,7 +29,7 @@ type ServerMeta struct {
 // ServerJSON represents complete server information as defined in the MCP spec, with extension support
 type ServerJSON struct {
 	Schema        string              `json:"$schema,omitempty"`
-	Name          string              `json:"name" minLength:"1" maxLength:"200"`
+	Name          string              `json:"name" minLength:"1" maxLength:"200" pattern:"^[^/]+/[^/]+$"`
 	Description   string              `json:"description" minLength:"1" maxLength:"100"`
 	Status        model.Status        `json:"status,omitempty" minLength:"1"`
 	Repository    model.Repository    `json:"repository,omitempty"`
