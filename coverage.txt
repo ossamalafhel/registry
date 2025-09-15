@@ -1,0 +1,14 @@
+github.com/modelcontextprotocol/registry/internal/validators/registries/mcpb.go:15:	ValidateMCPB			77.4%
+github.com/modelcontextprotocol/registry/internal/validators/registries/mcpb.go:74:	validateMCPBUrl			78.9%
+github.com/modelcontextprotocol/registry/internal/validators/registries/mcpb.go:120:	isValidGitHubReleaseURL		100.0%
+github.com/modelcontextprotocol/registry/internal/validators/registries/mcpb.go:132:	isValidGitLabReleaseURL		0.0%
+github.com/modelcontextprotocol/registry/internal/validators/registries/mcpb.go:157:	inferMCPBRegistryBaseURL	62.5%
+github.com/modelcontextprotocol/registry/internal/validators/registries/npm.go:20:	ValidateNPM			86.2%
+github.com/modelcontextprotocol/registry/internal/validators/registries/nuget.go:15:	ValidateNuGet			85.2%
+github.com/modelcontextprotocol/registry/internal/validators/registries/oci.go:42:	ValidateOCI			90.8%
+github.com/modelcontextprotocol/registry/internal/validators/registries/oci.go:203:	parseImageReference		100.0%
+github.com/modelcontextprotocol/registry/internal/validators/registries/oci.go:216:	getDockerIoAuthToken		100.0%
+github.com/modelcontextprotocol/registry/internal/validators/registries/oci.go:243:	getSpecificManifest		81.0%
+github.com/modelcontextprotocol/registry/internal/validators/registries/oci.go:282:	getImageConfig			81.0%
+github.com/modelcontextprotocol/registry/internal/validators/registries/pypi.go:22:	ValidatePyPI			84.0%
+total:											(statements)			82.9%
