@@ -3,6 +3,7 @@ package k8s
 import (
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 
 	"github.com/modelcontextprotocol/registry/deploy/infra/pkg/providers"
 )
@@ -43,6 +44,16 @@ func DeployAll(ctx *pulumi.Context, cluster *providers.ProviderInfo, backupStora
 	err = DeployMonitoringStack(ctx, cluster, environment, ingressNginx)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check if logging is enabled and deploy OTel Collector DaemonSet
+	conf := config.New(ctx, "mcp-registry")
+	enableLogging := conf.GetBool("enableLogging")
+	if enableLogging {
+		err = DeployLoggingStack(ctx, cluster, environment)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return service, nil

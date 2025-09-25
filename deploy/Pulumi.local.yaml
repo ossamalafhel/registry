@@ -6,4 +6,5 @@ config:
   mcp-registry:jwtPrivateKey: bb2c6b424005acd5df47a9e2c87f446def86dd740c888ea3efb825b23f7ef47c
   mcp-registry:googleOauthClientSecret:
     secure: v1:DUSCqfRvRSVmSihj:JIYznEU+T1vbmVF8MkdSUtqUM50498sxBWsfwNaS1r5jkF/+gtltWfJoKWb1OLgcX8lb
+  mcp-registry:enableLogging: false
 encryptionsalt: v1:ijIHaqhbXVA=:v1:7voX1Kv+Bunz33iN:fyVHMOhlGIymzJ+ILgUBy3ExTwUUnA==
